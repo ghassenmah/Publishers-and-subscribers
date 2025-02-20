@@ -68,7 +68,16 @@ void setup() {
   // Initialisation de la communication série
   Serial.begin(115200);
   set_microros_serial_transports(Serial);  // Définir les transports série pour Micro-ROS
-  delay(2000);  // Attendre la communication avec l'agent ROS2
+  
+  // Attente initiale pour vérifier si l'agent est prêt
+  unsigned long start_time = millis();
+  while (millis() - start_time < 5000) {
+    if (Serial.available()) {
+      Serial.println("Agent detected, attempting connection...");
+      break;  // On sort dès qu'on détecte une communication avec l'agent
+    }
+    delay(100);
+  }
 
   // Initialiser la pin de la LED
   pinMode(LED_PIN, OUTPUT);
@@ -80,12 +89,14 @@ void setup() {
   // Initialiser le support Micro-ROS
   rcl_ret_t rc = rclc_support_init(&support, 0, NULL, &allocator);
   if (rc != RCL_RET_OK) {
+    Serial.println("Failed to initialize support for Micro-ROS");
     error_loop();
   }
 
   // Initialiser le nœud Micro-ROS
   rc = rclc_node_init_default(&node, "stm32_led_node", "", &support);
   if (rc != RCL_RET_OK) {
+    Serial.println("Failed to initialize node");
     error_loop();
   }
 
@@ -97,6 +108,7 @@ void setup() {
     "led_state"
   );
   if (rc != RCL_RET_OK) {
+    Serial.println("Failed to initialize publisher");
     error_loop();
   }
 
@@ -108,28 +120,32 @@ void setup() {
     "led_control"
   );
   if (rc != RCL_RET_OK) {
+    Serial.println("Failed to initialize subscriber");
     error_loop();
   }
 
   // Initialiser l'exécuteur pour gérer les abonnements et publications
   rc = rclc_executor_init(&executor, &support.context, 2, &allocator);  // 2 tâches : le publisher et le subscriber
   if (rc != RCL_RET_OK) {
+    Serial.println("Failed to initialize executor");
     error_loop();
   }
 
   // Ajouter le subscriber à l'exécuteur
   rc = rclc_executor_add_subscription(&executor, &led_control_subscriber, &led_control_msg, &led_control_callback, ON_NEW_DATA);
   if (rc != RCL_RET_OK) {
+    Serial.println("Failed to add subscription to executor");
     error_loop();
   }
 }
 
 void loop() {
-  // Exécuter l'exécuteur Micro-ROS pour gérer les abonnements et publications
-  rcl_ret_t rc = rclc_executor_spin_some(&executor, RCUTILS_MS_TO_NS(100));  // Exécuter les tâches disponibles
-  if (rc != RCL_RET_OK) {
+  // Essayer de se connecter à l'agent de manière continue
+  if (rclc_executor_spin_some(&executor, RCUTILS_MS_TO_NS(100)) != RCL_RET_OK) {
+    Serial.println("Error during spin");
     error_loop();
   }
 
+  // Exécuter périodiquement l'exécuteur Micro-ROS pour gérer les abonnements et publications
   delay(10);  // Petite pause pour permettre à l'exécuteur de tourner
 }
